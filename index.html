@@ -79,6 +79,9 @@ h1 .yr{color:var(--red)}
 .grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));touch-action:pan-y}
 .dow{font-size:.78rem;color:var(--muted);text-align:center;padding-bottom:6px;font-weight:500}
 .dow.sun{color:var(--red)}
+.grid.month .day{min-height:86px}
+#mtitle .back{display:inline-flex;align-items:center;gap:2px;color:var(--red);font-size:1.15rem;font-weight:500;letter-spacing:0;padding:6px 0}
+#mtitle .back:active{opacity:.45}
 .day{border-top:1px solid var(--line);min-height:72px;padding:4px 2px 6px;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0}
 .day .num{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-size:1.12rem;font-variant-numeric:tabular-nums}
 .day.out .num{color:var(--muted);opacity:.5}
@@ -352,6 +355,8 @@ h1 .yr{color:var(--red)}
   // 설정: 필요한 기능만 켜서 쓴다 (기본은 모두 꺼짐)
   if (!state.settings) state.settings = {repeat:false, week:false, place:false, alarm:false};
   var weekPref = false;
+  // 애플 캘린더처럼: 달력에서 날짜를 누르면 하루 보기(위에는 그 주, 아래는 그날 일정), 왼쪽 위 '‹ 10월'로 달력으로 돌아간다
+  var dayMode = false;
   function weekMode(){ return !!(state.settings.week && weekPref); }
   var REPEATS = {'':'안 함', daily:'매일', weekly:'매주', monthly:'매월', yearly:'매년'};
   var ALARMS = [['','없음'],['0','정각'],['10','10분 전'],['30','30분 전'],['60','1시간 전'],['1440','하루 전']];
@@ -451,12 +456,14 @@ h1 .yr{color:var(--red)}
 
   function renderGrid(){
     var y=view.getFullYear(), m=view.getMonth();
-    $('mtitle').innerHTML = (m+1)+'월 <span class="yr">'+y+'</span>';
+    if (dayMode){ $('mtitle').innerHTML=''; var bk=el('span','back','‹ '+(parse(sel).getMonth()+1)+'월'); $('mtitle').append(bk); $('mtitle').setAttribute('aria-label','달력으로 돌아가기'); }
+    else { $('mtitle').innerHTML = (m+1)+'월 <span class="yr">'+y+'</span>'; $('mtitle').setAttribute('aria-label','오늘로 이동'); }
     var g=$('grid'); g.innerHTML='';
     DOW.forEach(function(d,i){ g.append(el('div','dow'+(i===0?' sun':'')+(i===6?' sat':''),d)); });
     var start = new Date(y,m,1-new Date(y,m,1).getDay());
     var rows = Math.ceil((new Date(y,m,1).getDay()+new Date(y,m+1,0).getDate())/7);
-    var wk = weekMode(); if (wk){ start = weekStart(sel); rows = 1; }
+    var wk = weekMode() || dayMode; if (wk){ start = weekStart(sel); rows = 1; }
+    g.classList.toggle('month', !wk);
     for (var i=0;i<rows*7;i++){
       var d = new Date(start.getFullYear(), start.getMonth(), start.getDate()+i), k=key(d);
       var cell = el('button','day'+(!wk && d.getMonth()!==m?' out':'')+(d.getDay()===0?' sun':'')+(d.getDay()===6?' sat':'')+(hol(k)?' '+hol(k).type:'')+(love(k)?' love':'')+(k===TODAY?' today':'')+(k===sel?' sel':''));
@@ -474,7 +481,12 @@ h1 .yr{color:var(--red)}
       if (evs.length+its.length>2) chips.append(el('span','chip','+'+(evs.length+its.length-2)));
       else its.slice(0,2-evs.length).forEach(function(it){ chips.append(el('span','chip','☐ '+it.text)); });
       cell.append(dots, chips);
-      (function(k,d){ cell.onclick=function(){ sel=k; if (d.getMonth()!==m) view=new Date(d.getFullYear(),d.getMonth(),1); render(); }; })(k,d);
+      (function(k,d){ cell.onclick=function(){
+        var enter = !dayMode && !weekMode();
+        sel=k; if (enter) dayMode=true;
+        view=new Date(d.getFullYear(),d.getMonth(),1); render();
+        if (enter) window.scrollTo(0,0);
+      }; })(k,d);
       g.append(cell);
     }
   }
@@ -619,9 +631,11 @@ h1 .yr{color:var(--red)}
   function renderDay(){
     var box=$('daylist'); box.innerHTML='';
     var dk=sel+(weekMode()?'w':''); box.classList.toggle('anim', dk!==lastDayKey); lastDayKey=dk;
-    if (weekMode()){ var w0=weekStart(sel); for (var i=0;i<7;i++) dayBlock(box, key(new Date(w0.getFullYear(), w0.getMonth(), w0.getDate()+i)), false); }
-    else dayBlock(box, sel, true);
-    var vs=$('vseg'); vs.hidden=!state.settings.week; $('bottombar').hidden = tab!=='cal' || !state.settings.week;
+    if (dayMode) dayBlock(box, sel, true);
+    else if (weekMode()){ var w0=weekStart(sel); for (var i=0;i<7;i++) dayBlock(box, key(new Date(w0.getFullYear(), w0.getMonth(), w0.getDate()+i)), false); }
+    box.hidden = !dayMode && !weekMode();
+    var lg=document.querySelector('.legend'); if (lg) lg.hidden = dayMode;
+    var vs=$('vseg'); vs.hidden=!state.settings.week; $('bottombar').hidden = tab!=='cal' || !state.settings.week || dayMode;
     $('vm-m').setAttribute('aria-pressed', weekMode()?'false':'true'); $('vm-w').setAttribute('aria-pressed', weekMode()?'true':'false');
   }
 
@@ -742,7 +756,7 @@ h1 .yr{color:var(--red)}
       var data={plan:plan,title:t,date:date.value,endDate:ed2,allDay:ad.checked,start:ad.checked?'':st.value,end:ad.checked?'':en.value,color:color,note:note.value.trim()};
       if (ST.repeat){ data.repeat=rep.value; data.repeatDays=rep.value==='weekly'?rdays.slice().sort():[]; data.repeatUntil=rep.value?runtil.value:''; if (data.repeat) data.endDate=''; }
       if (ST.alarm) data.alarm=alm.value;
-      if (ST.place) data.place=place.value.trim();
+      data.place=place.value.trim();
       if (e) Object.assign(e,data); else state.events.push(Object.assign({id:uid('e')},data));
       sel=data.date; var d=parse(sel); view=new Date(d.getFullYear(),d.getMonth(),1);
     });
@@ -774,11 +788,12 @@ h1 .yr{color:var(--red)}
     var alm=el('select'); alm.id='ev-alarm';
     ALARMS.forEach(function(a){ var o=el('option',null,a[1]); o.value=a[0]; alm.append(o); });
     alm.value=(e&&e.alarm)||'';
-    var place=inp('text','ev-place',e&&e.place,'장소 (예: 망원시장)');
+    var place=inp('text','ev-place',e&&e.place,'예: 망원시장');
     var bx=el('div','fbox');
     if (ST.repeat) bx.append(row('반복',rep), rowDays, rowUntil);
     if (ST.alarm) bx.append(row('알림',alm));
-    if (ST.place) bx.append(row(null,place));
+    var pr=row('장소',place); pr.querySelector('span').style.flex='none'; place.style.textAlign='right'; bx.append(pr);
+    bx.append(el('div','shelp','장소를 적으면 일정에 파란 핀으로 나오고, 누르면 네이버 지도가 열려요.'));
     if (bx.children.length) s.fields.append(bx);
     drawDays(); syncRep();
     // 시간별 계획: 하루 종일·여러 날 일정에도 넣을 수 있다.
@@ -798,7 +813,7 @@ h1 .yr{color:var(--red)}
         var del=el('button','pdel','×'); del.type='button'; del.setAttribute('aria-label','계획 삭제'); del.onclick=function(){ plans.splice(plans.indexOf(p),1); drawPlans(); };
         var px=inp('text','pl-x-'+p.id,p.text,'계획 (예: 후쿠오카 공항 도착)'); px.oninput=function(){ p.text=px.value; };
         r.append(pd,pt,del,px);
-        if (state.settings.place){ var pp=inp('text','pl-p-'+p.id,p.place,'장소 (선택)'); pp.classList.add('pplace'); pp.oninput=function(){ p.place=pp.value; }; r.append(pp); }
+        var pp=inp('text','pl-p-'+p.id,p.place,'장소 (선택, 예: 더현대 서울)'); pp.classList.add('pplace'); pp.oninput=function(){ p.place=pp.value; }; r.append(pp);
         plist.append(r);
       });
     }
@@ -857,11 +872,11 @@ h1 .yr{color:var(--red)}
     tab=t; $('tab-cal').setAttribute('aria-selected', t==='cal'); $('tab-list').setAttribute('aria-selected', t==='list');
     $('view-cal').hidden = t!=='cal'; $('view-list').hidden = t!=='list';
     $('view-list').style.display = t==='list'?'flex':'';
-    $('bottombar').hidden = t!=='cal' || !state.settings.week;
+    $('bottombar').hidden = t!=='cal' || !state.settings.week || dayMode;
     remember();
   }
   // 저장하면 페이지가 새 버전으로 다시 열리므로, 보던 달·날짜·탭·스크롤을 기억했다가 되살린다.
-  function uiState(){ return {y:view.getFullYear(), m:view.getMonth(), sel:sel, tab:tab, wk:weekPref, sy:window.scrollY||0}; }
+  function uiState(){ return {y:view.getFullYear(), m:view.getMonth(), sel:sel, tab:tab, wk:weekPref, dm:dayMode, sy:window.scrollY||0}; }
   function remember(){ try { sessionStorage.setItem('cal-ui', JSON.stringify(uiState())); } catch(e){} }
   window.addEventListener('scroll', function(){ remember(); }, {passive:true});
   function render(){ renderGrid(); renderDay(); renderList(); remember(); }
@@ -895,7 +910,7 @@ h1 .yr{color:var(--red)}
           mp.slice(0,2).forEach(function(p){ info.append(el('span','n',(p.time?p.time+' ':'')+p.text)); });
           if (!mp.length && hit(e.note)) info.append(el('span','n',e.note));
           b.append(bar,info);
-          b.onclick=function(){ var d=parse(e.date); sel=e.date; view=new Date(d.getFullYear(),d.getMonth(),1); closeSheet(); setTab('cal'); render(); window.scrollTo(0,0); };
+          b.onclick=function(){ var d=parse(e.date); sel=e.date; dayMode=true; view=new Date(d.getFullYear(),d.getMonth(),1); closeSheet(); setTab('cal'); render(); window.scrollTo(0,0); };
           box.append(b);
         });
         out.append(box);
@@ -909,7 +924,7 @@ h1 .yr{color:var(--red)}
           if (it.date) info.append(el('span','d',fmt(it.date)));
           info.append(el('span','t',(it.done?'✓ ':'')+it.text));
           b.append(info);
-          b.onclick=function(){ closeSheet(); if (it.date){ var d=parse(it.date); sel=it.date; view=new Date(d.getFullYear(),d.getMonth(),1); setTab('cal'); } else setTab('list'); render(); window.scrollTo(0,0); };
+          b.onclick=function(){ closeSheet(); if (it.date){ var d=parse(it.date); sel=it.date; dayMode=true; view=new Date(d.getFullYear(),d.getMonth(),1); setTab('cal'); } else setTab('list'); render(); window.scrollTo(0,0); };
           box2.append(b);
         });
         out.append(box2);
@@ -948,8 +963,7 @@ h1 .yr{color:var(--red)}
       ST.love={start:lvS.value, gf:lvG.value, me:lvM.value}; refreshLove(); });
     var box=el('div','fbox');
     [['repeat','반복 일정','매주 헬스처럼 반복되는 일정을 한 번에 등록해요.'],
-     ['week','주간 보기','달력 위에 월/주 버튼이 생겨서 한 주씩 볼 수 있어요.'],
-     ['place','장소','일정과 시간별 계획에 장소를 적으면 네이버 지도로 바로 열려요.']
+     ['week','주간 보기','달력 아래에 월/주 버튼이 생겨서 한 주 일정을 목록으로 볼 수 있어요.']
     ].forEach(function(f){
       var tg=el('label','toggle'); var c=el('input'); c.type='checkbox'; c.id='set-'+f[0]; c.checked=!!ST[f[0]]; tg.append(c, el('span')); nx[f[0]]=c;
       box.append(row(f[1],tg)); var h=el('div','shelp',f[2]); box.append(h);
@@ -985,7 +999,7 @@ h1 .yr{color:var(--red)}
   $('vm-w').onclick=function(){ weekPref=true; var d=parse(sel); view=new Date(d.getFullYear(),d.getMonth(),1); render(); };
   // 손가락으로 좌우로 밀어서 달 넘기기
   function goMonth(dir){
-    if (weekMode()){ var d=parse(sel); d=new Date(d.getFullYear(), d.getMonth(), d.getDate()+7*dir); sel=key(d); view=new Date(d.getFullYear(),d.getMonth(),1); }
+    if (weekMode() || dayMode){ var d=parse(sel); d=new Date(d.getFullYear(), d.getMonth(), d.getDate()+7*dir); sel=key(d); view=new Date(d.getFullYear(),d.getMonth(),1); }
     else view=new Date(view.getFullYear(),view.getMonth()+dir,1);
     render();
     var g=$('grid');
@@ -1001,7 +1015,10 @@ h1 .yr{color:var(--red)}
     },{passive:true});
   })();
   // 월 제목을 누르면 오늘로 돌아간다
-  $('mtitle').onclick=function(){ sel=TODAY; view=new Date(now.getFullYear(),now.getMonth(),1); render(); };
+  $('mtitle').onclick=function(){
+    if (dayMode){ dayMode=false; var d=parse(sel); view=new Date(d.getFullYear(), d.getMonth(), 1); render(); window.scrollTo(0,0); return; }
+    sel=TODAY; view=new Date(now.getFullYear(),now.getMonth(),1); render();
+  };
   document.addEventListener('keydown',function(ev){
     if (ev.key==='Escape'){ closeSheet(); return; }
     // 컴퓨터에서는 ← → 키로 달 넘기기
@@ -1122,7 +1139,7 @@ h1 .yr{color:var(--red)}
   function start(data){
     var d = data && data.ui;
     if (!d){ try { d = JSON.parse(sessionStorage.getItem('cal-ui')||'null'); } catch(e){} }
-    if (d && typeof d.y==='number'){ view=new Date(d.y,d.m,1); if (d.sel) sel=d.sel; weekPref=!!d.wk; }
+    if (d && typeof d.y==='number'){ view=new Date(d.y,d.m,1); if (d.sel) sel=d.sel; weekPref=!!d.wk; dayMode=!!d.dm; }
     render();
     if (d && d.tab==='list') setTab('list');
     if (d && d.sy) setTimeout(function(){ window.scrollTo(0,d.sy); }, 0);
