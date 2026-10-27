@@ -124,6 +124,24 @@ h1 .yr{color:var(--red)}
 .ev .n{font-size:.85rem;color:var(--muted);overflow-wrap:anywhere}
 .ev .time{font-size:.85rem;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums;flex:none;display:flex;flex-direction:column}
 .empty{color:var(--muted);font-size:.9rem;padding:14px 4px}
+/* 하루 시간표 (애플 캘린더 일 보기) */
+.tlsec{font-size:.72rem;font-weight:600;color:var(--muted);letter-spacing:.04em;padding:4px 4px 0}
+.tlhint{font-size:.74rem;color:var(--muted);padding:6px 4px 2px}
+.tl{position:relative;height:68vh;min-height:320px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;border-top:1px solid var(--line);margin-top:4px}
+.tlgrid{position:relative;margin:12px 0 12px 58px;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.tlh{position:absolute;left:-58px;right:0;height:0;border-top:1px solid var(--line)}
+.tlh span{position:absolute;left:0;width:52px;top:-.62em;font-size:.66rem;line-height:1.2;color:var(--muted);text-align:right;padding-right:6px;font-variant-numeric:tabular-nums}
+.tlhh{position:absolute;left:0;right:0;height:0;border-top:1px dashed color-mix(in srgb, var(--line) 70%, transparent)}
+.tlev{--c:var(--red);position:absolute;box-sizing:border-box;border-radius:6px;padding:3px 6px;overflow:hidden;font-size:.74rem;line-height:1.3;cursor:pointer;z-index:2;
+  background:color-mix(in srgb, var(--c) 17%, var(--bg));color:color-mix(in srgb, var(--c) 68%, var(--ink));border-left:3px solid var(--c);
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;transition:opacity .15s,transform .15s}
+.tlev:active{transform:scale(.98)}
+.tlev b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tlev small{display:block;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tlnew{background:var(--red);color:#fff;border-left-color:color-mix(in srgb, var(--red) 70%, #000);box-shadow:0 6px 18px color-mix(in srgb, var(--red) 35%, transparent);z-index:4;animation:popIn .18s ease-out;pointer-events:none}
+.tlprev{--c:var(--red);position:absolute;left:0;right:0;box-sizing:border-box;border:2px dashed var(--c);border-radius:6px;background:color-mix(in srgb, var(--c) 10%, transparent);z-index:3;pointer-events:none;font-size:.72rem;font-weight:600;color:var(--c);padding:2px 6px}
+.tlnow{position:absolute;left:-6px;right:0;height:0;border-top:2px solid var(--red);z-index:5;pointer-events:none}
+.tlnow::before{content:"";position:absolute;left:-4px;top:-6px;width:10px;height:10px;border-radius:50%;background:var(--red)}
 .plans{display:flex;flex-direction:column;gap:2px;margin-top:6px}
 .plans span{font-size:.88rem;color:var(--ink);overflow-wrap:anywhere}
 .plans b{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:500;margin-right:8px}
@@ -492,7 +510,7 @@ h1 .yr{color:var(--red)}
       if (lv){ var ll=el('div','hline love'); ll.append(el('i'), el('span',null,lv)); box.append(ll); }
       var dd=LOVE_START ? Math.round((d-LOVE_START)/864e5)+1 : 0;
       if (dd>0){ var dl=el('div','hline love'); dl.style.fontWeight='500'; dl.append(el('span',null,'사귄 지 '+dd+'일째')); box.append(dl); }
-      if (!evs.length && !its.length){ box.append(el('div','empty','일정 없음 · 오른쪽 위 + 를 눌러 추가하세요')); return; }
+      dayTimeline(box, k, evs, its); return;
     } else {
       var h=el('div','wkh'+(k===TODAY?' today':'')); h.append(el('span',null,label));
       if (hs){ var t1=el('small',null,hs.name); t1.style.color=hs.type==='hol'?'var(--red)':'var(--purple)'; h.append(t1); }
@@ -511,6 +529,103 @@ h1 .yr{color:var(--red)}
     });
     its.forEach(function(it){ box.append(itemRow(it)); });
   }
+  // ---------- 하루 시간표 ----------
+  var H=52, tlMem={k:'', top:0};
+  function mins(t){ if (!t) return null; var p=t.split(':'); return (+p[0])*60+(+p[1]||0); }
+  function fmtT(m){ m=Math.max(0, Math.min(1439, Math.round(m))); return pad(Math.floor(m/60))+':'+pad(m%60); }
+  function hourLabel(h){ return h===0?'오전 12시' : h<12?'오전 '+h+'시' : h===12?'정오' : '오후 '+(h-12)+'시'; }
+  function isAllDayOn(e){ return e.allDay || !e.start || (!e.repeat && e.endDate && e.endDate>e.date); }
+  function durOf(e){ var a=mins(e.start), b=mins(e.end); if (a===null) return 60; if (b===null || b<=a) return 60; return b-a; }
+  function swipeEventRow(box, e, k){
+    var r=eventRow(e,k), sw=el('div','swrap evw'), sd=el('button','swdel','삭제'); sd.type='button'; sd.setAttribute('aria-label', e.title+' 삭제');
+    var kill=function(){
+      if (e.repeat) e.except=(e.except||[]).concat([k]);
+      else state.events=state.events.filter(function(x){ return x!==e; });
+      openRow=null; render(); scheduleSave();
+    };
+    sd.onclick=kill; sw.append(sd,r); box.append(sw); attachSwipe(r,kill);
+  }
+  function dayTimeline(box, k, evs, its){
+    var allday=evs.filter(isAllDayOn), timed=evs.filter(function(e){ return !isAllDayOn(e); });
+    if (allday.length || its.length){
+      box.append(el('div','tlsec','하루 종일'));
+      allday.forEach(function(e){ swipeEventRow(box, e, k); });
+      its.forEach(function(it){ box.append(itemRow(it)); });
+    }
+    box.append(el('div','tlhint','빈 시간을 꾹 누르면 일정 추가 · 일정을 꾹 눌러 끌면 시간 변경'));
+    var tl=el('div','tl'), g=el('div','tlgrid'); g.dataset.k=k; g.style.height=(24*H)+'px';
+    for (var h=0; h<24; h++){
+      var ln=el('div','tlh'); ln.style.top=(h*H)+'px'; ln.append(el('span',null,hourLabel(h))); g.append(ln);
+      var hh=el('div','tlhh'); hh.style.top=(h*H+H/2)+'px'; g.append(hh);
+    }
+    var end=el('div','tlh'); end.style.top=(24*H)+'px'; g.append(end);
+    // 겹치는 일정은 나란히 놓는다
+    var items=timed.map(function(e){ var a=mins(e.start); return {e:e, a:a, b:Math.min(1440, a+Math.max(durOf(e), 20))}; }).sort(function(x,y){ return x.a-y.a || y.b-x.b; });
+    var cluster=[], cEnd=-1;
+    function flush(){ var lanes=[]; cluster.forEach(function(it){ var L=0; while (lanes[L]!=null && lanes[L]>it.a) L++; lanes[L]=it.b; it.lane=L; }); cluster.forEach(function(it){ it.n=lanes.length; }); cluster=[]; }
+    items.forEach(function(it){ if (it.a>=cEnd && cluster.length) flush(); cluster.push(it); cEnd=Math.max(cEnd, it.b); });
+    if (cluster.length) flush();
+    items.forEach(function(it){
+      var e=it.e, b=el('div','tlev'); b.dataset.eid=e.id; b.dataset.k=k; b.style.setProperty('--c','var(--'+e.color+')');
+      b.style.top=(it.a*H/60)+'px'; b.style.height=Math.max(22, (it.b-it.a)*H/60-2)+'px';
+      b.style.left='calc('+(it.lane*100/it.n)+'% + 1px)'; b.style.width='calc('+(100/it.n)+'% - 3px)';
+      b.append(el('b',null,e.title), el('small',null,e.start+(e.end?' – '+e.end:'')));
+      if (e.place) b.append(el('small',null,e.place));
+      (e.plan||[]).filter(function(p){ return e.repeat ? true : p.date===k; }).sort(function(x,y){ return (x.time||'').localeCompare(y.time||''); })
+        .forEach(function(p){ b.append(el('small',null,(p.time?p.time+' ':'')+p.text)); });
+      b.setAttribute('role','button'); b.tabIndex=0; b.setAttribute('aria-label', e.title+' '+e.start);
+      b.onclick=function(){ eventSheet(e); };
+      b.onkeydown=function(ev){ if (ev.key==='Enter'){ ev.preventDefault(); eventSheet(e); } };
+      g.append(b);
+    });
+    if (k===TODAY){ var nw=el('div','tlnow'); var n=new Date(); nw.style.top=((n.getHours()*60+n.getMinutes())*H/60)+'px'; g.append(nw); }
+    tl.append(g); box.append(tl);
+    // 스크롤 위치: 같은 날이면 그대로, 다른 날이면 지금 시각·첫 일정·오전 8시 근처로
+    var top;
+    if (tlMem.k===k) top=tlMem.top;
+    else if (k===TODAY){ var n2=new Date(); top=(n2.getHours()*60+n2.getMinutes()-90)*H/60; }
+    else if (items.length) top=(items[0].a-30)*H/60;
+    else top=8*H;
+    tl.scrollTop=Math.max(0, top); tlMem={k:k, top:tl.scrollTop};
+    tl.addEventListener('scroll', function(){ tlMem={k:k, top:tl.scrollTop}; }, {passive:true});
+    attachLongPress(tl, g, k);
+  }
+  setInterval(function(){ var nw=document.querySelector('.tlnow'); if (nw){ var n=new Date(); nw.style.top=((n.getHours()*60+n.getMinutes())*H/60)+'px'; } }, 60000);
+  function minAt(g, y){ var r=g.getBoundingClientRect(); return Math.max(0, Math.min(23*60+45, Math.floor(((y-r.top)/H*60)/15)*15)); }
+  function edgeScroll(tl, y){ var r=tl.getBoundingClientRect(); if (y<r.top+40) tl.scrollTop-=10; else if (y>r.bottom-40) tl.scrollTop+=10; }
+  // 빈 시간을 꾹 누르면 "새로운 이벤트"가 생기고, 손가락을 움직여 시간을 맞춘 뒤 떼면 일정 추가 창이 열린다
+  function attachLongPress(tl, g, k){
+    var timer=null, ph=null, sx=0, sy=0, lastY=0;
+    function show(m){
+      if (!ph){ ph=el('div','tlev tlnew'); g.append(ph); }
+      ph.dataset.m=m; ph.style.top=(m*H/60)+'px'; ph.style.height=(H-2)+'px'; ph.style.left='1px'; ph.style.width='calc(100% - 3px)';
+      ph.innerHTML=''; ph.append(el('b',null,'새로운 이벤트'), el('small',null,fmtT(m)+' – '+fmtT(m+60)));
+    }
+    function down(x, y, target){
+      if (sheetOpen() || drag || (target.closest && target.closest('.tlev'))) return;
+      sx=x; sy=y; lastY=y;
+      timer=setTimeout(function(){ timer=null; show(minAt(g, sy)); suppressClick=Date.now(); try { if (navigator.vibrate) navigator.vibrate(10); } catch(e){} }, 420);
+    }
+    function move(x, y, ev){
+      if (timer && (Math.abs(x-sx)>8 || Math.abs(y-sy)>8)){ clearTimeout(timer); timer=null; return; }
+      if (ph){ if (ev.cancelable) ev.preventDefault(); lastY=y; edgeScroll(tl, y); show(minAt(g, y)); }
+    }
+    function up(cancel){
+      if (timer){ clearTimeout(timer); timer=null; }
+      if (!ph) return;
+      var m=+ph.dataset.m; ph.remove(); ph=null; suppressClick=Date.now();
+      if (!cancel) eventSheet(null, {date:k, start:fmtT(m), end:fmtT(Math.min(m+60, 1439))});
+    }
+    g.addEventListener('touchstart', function(ev){ if (ev.touches.length!==1){ up(true); return; } var t=ev.touches[0]; down(t.clientX, t.clientY, ev.target); }, {passive:true});
+    g.addEventListener('touchmove', function(ev){ var t=ev.touches[0]; move(t.clientX, t.clientY, ev); }, {passive:false});
+    g.addEventListener('touchend', function(){ up(false); });
+    g.addEventListener('touchcancel', function(){ up(true); });
+    g.addEventListener('mousedown', function(ev){ if (ev.button!==0 || Date.now()-lastTouch<800) return; down(ev.clientX, ev.clientY, ev.target);
+      var mm=function(e2){ move(e2.clientX, e2.clientY, e2); }, mu=function(){ document.removeEventListener('mousemove', mm); document.removeEventListener('mouseup', mu); up(false); };
+      document.addEventListener('mousemove', mm); document.addEventListener('mouseup', mu); });
+    g.addEventListener('contextmenu', function(ev){ ev.preventDefault(); });
+  }
+
   var lastDayKey='';
   function renderDay(){
     var box=$('daylist'); box.innerHTML='';
@@ -614,7 +729,8 @@ h1 .yr{color:var(--red)}
   function row(label, ctl){ var r=el('div','frow'); if (label) r.append(el('span',null,label)); r.append(ctl); return r; }
   function inp(type,id,val,ph){ var i=el('input'); i.type=type; i.id=id; i.value=val||''; if (ph) i.placeholder=ph; return i; }
 
-  function eventSheet(e){
+  function eventSheet(e, pre){
+    pre=pre||{};
     var s=sheet(e?'이벤트 편집':'새로운 이벤트', e?'완료':'추가', function(){
       var t=title.value.trim(); if (!t || !date.value) return false;
       var ed2 = edate.value && edate.value>date.value ? edate.value : '';
@@ -630,10 +746,11 @@ h1 .yr{color:var(--red)}
     var title=inp('text','ev-title',e&&e.title,'제목');
     var b1=el('div','fbox'); b1.append(row(null,title)); s.fields.append(b1);
     var tg=el('label','toggle'); var ad=el('input'); ad.type='checkbox'; ad.id='ev-allday'; ad.checked=e?!!e.allDay:false; tg.append(ad, el('span'));
-    var date=inp('date','ev-date',e?e.date:sel);
-    var edate=inp('date','ev-enddate',e?(e.endDate||e.date):sel);
+    var date=inp('date','ev-date',e?e.date:(pre.date||sel));
+    var edate=inp('date','ev-enddate',e?(e.endDate||e.date):(pre.date||sel));
     date.addEventListener('change',function(){ if (!edate.value || edate.value<date.value) edate.value=date.value; });
-    var st=inp('time','ev-start',e?e.start:'09:00'), en=inp('time','ev-end',e?e.end:'10:00');
+    var st=inp('time','ev-start',e?e.start:(pre.start||'09:00')), en=inp('time','ev-end',e?e.end:(pre.end||'10:00'));
+    st.addEventListener('change', function(){ var a=mins(st.value), b=mins(en.value); if (a!==null && (b===null || b<=a)) en.value=fmtT(Math.min(a+60, 1439)); });
     var rs=row('시작',st), re=row('종료',en);
     function sync(){ rs.hidden=ad.checked; re.hidden=ad.checked; }
     ad.onchange=sync;
@@ -905,7 +1022,8 @@ h1 .yr{color:var(--red)}
     if (sheetOpen() || drag) return;
     var src=target && target.closest && target.closest('[data-eid]'); if (!src || target.closest('a,.swdel')) return;
     var e=findEvent(src.dataset.eid); if (!e) return;
-    drag={e:e, from:src.dataset.k, src:src, x:x, y:y, mouse:mouse, active:false, over:null, ghost:null};
+    drag={e:e, from:src.dataset.k, src:src, x:x, y:y, mouse:mouse, active:false, over:null, ghost:null,
+      grab: src.classList.contains('tlev') ? y-src.getBoundingClientRect().top : 14};
     if (!mouse) drag.timer=setTimeout(startDrag, 380);
   }
   function startDrag(){
@@ -921,6 +1039,15 @@ h1 .yr{color:var(--red)}
     drag.overTrash = x>tr.left-pad && x<tr.right+pad && y>tr.top-pad && y<tr.bottom+pad;
     $('trash').classList.toggle('hot', drag.overTrash);
     var t=drag.overTrash ? null : document.elementFromPoint(x, y), cell=t && t.closest && t.closest('.day');
+    var tg=t && t.closest && t.closest('.tlgrid');
+    if (tg){
+      var gr=tg.getBoundingClientRect(), m=Math.max(0, Math.min(23*60+45, Math.round(((y-drag.grab-gr.top)/H*60)/15)*15)), dur=durOf(drag.e);
+      if (!drag.prev){ drag.prev=el('div','tlprev'); drag.prev.style.setProperty('--c','var(--'+drag.e.color+')'); }
+      if (drag.prev.parentNode!==tg) tg.append(drag.prev);
+      drag.prev.style.top=(m*H/60)+'px'; drag.prev.style.height=Math.max(22, Math.min(dur, 1440-m)*H/60-2)+'px';
+      drag.prev.textContent=fmtT(m)+' – '+fmtT(Math.min(m+dur, 1439));
+      drag.overTime={k:tg.dataset.k, m:m}; edgeScroll(tg.parentNode, y);
+    } else { drag.overTime=null; if (drag.prev) drag.prev.remove(); }
     if (drag.over && drag.over!==cell) drag.over.classList.remove('drop');
     if (cell) cell.classList.add('drop'); drag.over=cell;
   }
@@ -937,8 +1064,9 @@ h1 .yr{color:var(--red)}
     if (!d.active) return;
     dragging=false; suppressClick=Date.now();
     d.src.classList.remove('dragsrc'); if (d.ghost) d.ghost.remove(); if (d.over) d.over.classList.remove('drop');
-    $('trash').classList.remove('show','hot');
+    $('trash').classList.remove('show','hot'); if (d.prev) d.prev.remove();
     if (!cancel && d.overTrash){ trashEvent(d.e, d.from); return; }
+    if (!cancel && d.overTime){ retimeEvent(d.e, d.from, d.overTime.k, d.overTime.m); return; }
     var to=!cancel && d.over && d.over.dataset.k;
     if (to && to!==d.from) moveEvent(d.e, d.from, to);
   }
@@ -948,6 +1076,23 @@ h1 .yr{color:var(--red)}
     else state.events=state.events.filter(function(x){ return x!==e; });
     render(); scheduleSave();
     toast('“'+e.title+'” 삭제했어요', function(){ state=JSON.parse(before); render(); scheduleSave(); });
+  }
+  function retimeEvent(e, from, to, m){
+    var before=JSON.stringify(state), dur=durOf(e), st=fmtT(m), en=fmtT(Math.min(m+dur, 1439));
+    if (e.start===st && from===to && !e.allDay) return;
+    var off=Math.round((parse(to)-parse(from))/864e5);
+    if (e.repeat){   // 반복 일정은 그날 하나만 바꾼다
+      e.except=(e.except||[]).concat([from]);
+      var c=JSON.parse(JSON.stringify(e)); c.id=uid('e'); c.repeat=''; c.repeatDays=[]; c.repeatUntil=''; c.except=[]; c.date=to; c.endDate='';
+      c.allDay=false; c.start=st; c.end=en; c.plan=(c.plan||[]).map(function(p){ p.id=uid('p'); p.date=to; return p; }); state.events.push(c);
+    } else {
+      e.date=addDays(e.date, off); if (e.endDate) e.endDate=addDays(e.endDate, off);
+      (e.plan||[]).forEach(function(p){ if (p.date) p.date=addDays(p.date, off); });
+      e.allDay=false; e.start=st; e.end=en;
+    }
+    sel=to; var d=parse(to); view=new Date(d.getFullYear(), d.getMonth(), 1);
+    render(); scheduleSave();
+    toast('“'+e.title+'”을(를) '+(d.getMonth()+1)+'월 '+d.getDate()+'일 '+st+'로 옮겼어요', function(){ state=JSON.parse(before); render(); scheduleSave(); });
   }
   function moveEvent(e, from, to){
     var before=JSON.stringify(state), off=Math.round((parse(to)-parse(from))/864e5);
