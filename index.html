@@ -152,7 +152,6 @@ h1 .yr{color:var(--red)}
 .pin:active{opacity:.5}
 .ag-now{display:flex;align-items:center;gap:8px;color:var(--red);font-size:.7rem;font-weight:700;padding:2px 0;font-variant-numeric:tabular-nums}
 .ag-now i{flex:1;height:2px;background:var(--red);border-radius:1px}
-.tlnow::before{.tlnow::before{content:"";position:absolute;left:-4px;top:-6px;width:10px;height:10px;border-radius:50%;background:var(--red)}
 .plans{display:flex;flex-direction:column;gap:2px;margin-top:6px}
 .plans span{font-size:.88rem;color:var(--ink);overflow-wrap:anywhere}
 .plans b{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:500;margin-right:8px}
@@ -207,7 +206,7 @@ h1 .yr{color:var(--red)}
 
 /* 시트 */
 .dim{position:fixed;inset:0;background:var(--sheet-dim);display:flex;align-items:flex-end;justify-content:center;z-index:20}
-.sheet{background:var(--surface);box-shadow:0 -8px 30px rgba(0,0,0,.12);width:100%;max-width:560px;border-radius:14px 14px 0 0;max-height:92%;overflow:auto;padding-bottom:max(20px,env(safe-area-inset-bottom,0px))}
+.sheet{background:var(--surface);box-shadow:0 -8px 30px rgba(0,0,0,.12);width:100%;max-width:560px;border-radius:14px 14px 0 0;max-height:92%;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding-bottom:max(20px,env(safe-area-inset-bottom,0px))}
 @media (min-width:640px){.dim{align-items:center}.sheet{border-radius:14px}}
 .sheet-bar{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;position:sticky;top:0;background:var(--surface)}
 .sheet-bar strong{font-size:1rem}
@@ -696,11 +695,23 @@ h1 .yr{color:var(--red)}
     var name=inp('text','grp-name',g&&g.name,'목록 이름 (예: 여행 준비물)');
     var b1=el('div','fbox'); b1.append(row(null,name)); s.fields.append(b1);
     if (g) s.fields.append(delBox('목록 삭제'+(g.items.length?' (안의 항목 '+g.items.length+'개도 삭제)':''), function(){ state.groups=state.groups.filter(function(x){ return x!==g; }); }));
-    name.focus();
   }
 
+  // 창이 열려 있는 동안 뒤 화면을 그 자리에 고정해 둔다 (아이폰에서 창 안을 스크롤할 때 뒤가 같이 밀리지 않게)
+  var locked=false, lockY=0;
+  function lockScroll(){
+    if (locked) return; locked=true; lockY=window.scrollY||0;
+    var b=document.body.style; b.position='fixed'; b.top=(-lockY)+'px'; b.left='0'; b.right='0'; b.width='100%';
+  }
+  function unlockScroll(){
+    if (!locked) return; locked=false;
+    var b=document.body.style; b.position=''; b.top=''; b.left=''; b.right=''; b.width='';
+    window.scrollTo(0, lockY);
+  }
   function closeSheet(){
     var dim=$('sheet-slot').querySelector('.dim:not(.closing)'); if (!dim) return;
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    unlockScroll();
     var reduce=false; try { reduce=matchMedia('(prefers-reduced-motion: reduce)').matches; } catch(e){}
     if (reduce){ dim.remove(); return; }
     dim.classList.add('closing'); setTimeout(function(){ dim.remove(); }, 240);
@@ -713,7 +724,9 @@ h1 .yr{color:var(--red)}
     bar.append(c, el('strong',null,title), ok);
     var f=el('div','fields'); sh.append(bar,f); dim.append(sh);
     dim.onclick=function(ev){ if (ev.target===dim) closeSheet(); };
-    $('sheet-slot').innerHTML=''; $('sheet-slot').append(dim);
+    // 창 바깥(어두운 부분)을 끌어도 아무것도 움직이지 않게
+    dim.addEventListener('touchmove', function(ev){ if (!sh.contains(ev.target) && ev.cancelable) ev.preventDefault(); }, {passive:false});
+    $('sheet-slot').innerHTML=''; $('sheet-slot').append(dim); lockScroll();
     return {fields:f, ok:ok};
   }
   function row(label, ctl){ var r=el('div','frow'); if (label) r.append(el('span',null,label)); r.append(ctl); return r; }
@@ -814,7 +827,6 @@ h1 .yr{color:var(--red)}
       var bc=el('div','fbox'); bc.append(crow); s.fields.append(bc);
     }
     if (e) s.fields.append(delBox('이벤트 삭제', function(){ state.events=state.events.filter(function(x){return x!==e;}); }));
-    title.focus();
   }
 
   function itemSheet(it, g){
@@ -833,7 +845,6 @@ h1 .yr{color:var(--red)}
     state.groups.forEach(function(x){ var o=el('option',null,x.name); o.value=x.id; if (x===g) o.selected=true; grp.append(o); });
     var b2=el('div','fbox'); b2.append(row('날짜 (캘린더에 표시)',date), row('목록',grp)); s.fields.append(b2);
     if (it) s.fields.append(delBox('항목 삭제', function(){ g.items=g.items.filter(function(x){return x!==it;}); }));
-    text.focus();
   }
 
   function delBox(label, fn){
