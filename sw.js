@@ -1,5 +1,5 @@
 // 오프라인용: 앱 파일을 휴대폰에 보관해 두고, 인터넷이 되면 새 버전으로 바꾼다.
-const CACHE = 'mycal-v10';
+const CACHE = 'mycal-v11';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon-0221-192.png', './icon-0221-512.png', './icon-0221-180.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener('activate', e => {

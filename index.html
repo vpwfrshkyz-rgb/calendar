@@ -141,6 +141,20 @@ h1 .yr{color:var(--red)}
 .ev .n{font-size:.85rem;color:var(--muted);overflow-wrap:anywhere}
 .ev .time{font-size:.85rem;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums;flex:none;display:flex;flex-direction:column}
 .empty{color:var(--muted);font-size:.9rem;padding:14px 4px}
+/* 메모 사진 */
+.phs{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.phs img{width:64px;height:64px;object-fit:cover;border-radius:8px;display:block;cursor:zoom-in;background:var(--surface)}
+.phedit{display:flex;gap:8px;flex-wrap:wrap;padding:10px 14px;border-top:1px solid var(--line)}
+.phbox{position:relative}
+.phbox img{width:72px;height:72px;object-fit:cover;border-radius:10px;display:block}
+.phbox button{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:.8rem;line-height:22px;text-align:center}
+.phadd{width:72px;height:72px;border-radius:10px;border:1.5px dashed var(--muted);color:var(--muted);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:.72rem}
+.phadd b{font-size:1.4rem;font-weight:400;line-height:1}
+.phadd:active{opacity:.5}
+.viewer{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;animation:dimIn .2s ease-out;
+  padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+.viewer img{max-width:100%;max-height:100%;object-fit:contain}
+.viewer button{position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:16px;color:#fff;font-size:1rem;font-weight:600;padding:6px 10px;background:rgba(255,255,255,.15);border-radius:16px}
 /* 하루 일정: 시간 순서 카드 + 비어 있는 시간 줄 (톡 눌러 추가) */
 .tlsec{font-size:.72rem;font-weight:600;color:var(--muted);letter-spacing:.04em;padding:4px 4px 0}
 .tlhint{font-size:.74rem;color:var(--muted);padding:6px 4px 4px}
@@ -435,6 +449,62 @@ h1 .yr{color:var(--red)}
   var CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>';
 
   function setStatus(m,err){ var s=$('status'); s.textContent=m; s.classList.toggle('err',!!err); }
+  // 사진: 휴대폰 안 저장소(IndexedDB)에 줄여서 보관한다. 일정에는 사진 번호만 적어 둔다.
+  var PH={}, phDb=null;
+  function phOpen(){
+    return new Promise(function(res){
+      if (phDb) return res(phDb);
+      try {
+        var rq=indexedDB.open('mycal-photos',1);
+        rq.onupgradeneeded=function(){ rq.result.createObjectStore('p'); };
+        rq.onsuccess=function(){ phDb=rq.result; res(phDb); };
+        rq.onerror=function(){ res(null); };
+      } catch(e){ res(null); }
+    });
+  }
+  function phPut(id, url){ PH[id]=url; return phOpen().then(function(db){ if (!db) return; try { db.transaction('p','readwrite').objectStore('p').put(url,id); } catch(e){} }); }
+  function phDel(id){ delete PH[id]; return phOpen().then(function(db){ if (!db) return; try { db.transaction('p','readwrite').objectStore('p').delete(id); } catch(e){} }); }
+  function phLoad(){
+    return phOpen().then(function(db){ return new Promise(function(res){
+      if (!db) return res();
+      try {
+        var st=db.transaction('p').objectStore('p'), rq=st.openCursor();
+        rq.onsuccess=function(){ var c=rq.result; if (c){ PH[c.key]=c.value; c.continue(); } else res(); };
+        rq.onerror=function(){ res(); };
+      } catch(e){ res(); }
+    }); });
+  }
+  function phUsed(){ var u={}; state.events.forEach(function(e){ (e.photos||[]).forEach(function(id){ u[id]=1; }); }); return u; }
+  function phCleanup(){ var u=phUsed(); Object.keys(PH).forEach(function(id){ if (!u[id]) phDel(id); }); }
+  function shrinkPhoto(file){
+    return new Promise(function(res, rej){
+      var url=URL.createObjectURL(file), img=new Image();
+      img.onload=function(){
+        var max=1280, w=img.naturalWidth, h=img.naturalHeight, k=Math.min(1, max/Math.max(w,h));
+        var c=document.createElement('canvas'); c.width=Math.round(w*k); c.height=Math.round(h*k);
+        c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(url);
+        try { res(c.toDataURL('image/jpeg',0.8)); } catch(e){ rej(e); }
+      };
+      img.onerror=function(){ URL.revokeObjectURL(url); rej(); };
+      img.src=url;
+    });
+  }
+  function viewPhoto(id){
+    if (!PH[id]) return;
+    var v=el('div','viewer'), im=el('img'); im.src=PH[id]; im.alt='사진';
+    var x=el('button',null,'닫기'); x.type='button';
+    v.append(im,x); v.onclick=function(){ v.remove(); };
+    v.addEventListener('touchmove',function(ev){ if (ev.cancelable) ev.preventDefault(); },{passive:false});
+    document.body.append(v);
+  }
+  function photoRow(e){
+    var ids=(e.photos||[]).filter(function(id){ return PH[id]; }); if (!ids.length) return null;
+    var r=el('div','phs');
+    ids.forEach(function(id){ var im=el('img'); im.src=PH[id]; im.alt='메모 사진'; im.loading='lazy';
+      im.onclick=function(ev){ ev.stopPropagation(); if (Date.now()-suppressClick<350) return; viewPhoto(id); }; r.append(im); });
+    return r;
+  }
+
   function saveNow(){
     try { localStorage.setItem(STORE, JSON.stringify(state)); setStatus(''); }
     catch(e){ setStatus('저장하지 못했어요. 휴대폰 저장 공간을 확인해 주세요.', true); }
@@ -517,6 +587,7 @@ h1 .yr{color:var(--red)}
     if (e.alarm) meta.push('알림 '+alarmLabel(e.alarm));
     if (meta.length) info.append(el('span','n',meta.join(' · ')));
     if (e.note) info.append(el('span','n',e.note));
+    var prw=photoRow(e); if (prw) info.append(prw);
     if (e.place){ var pa=el('a','plink','장소: '+e.place+' ›'); pa.href='https://map.naver.com/p/search/'+encodeURIComponent(e.place); pa.target='_blank'; pa.rel='noopener';
       pa.onclick=function(ev){ ev.stopPropagation(); }; info.append(pa); }
     var dp=(e.plan||[]).filter(function(p){ return e.repeat ? true : p.date===k; }).sort(function(x,y){ return (x.time||'').localeCompare(y.time||''); });
@@ -594,6 +665,7 @@ h1 .yr{color:var(--red)}
     var meta=[]; if (e.repeat) meta.push('반복: '+repeatLabel(e)); if (meta.length) c.append(el('span','nt', meta.join(' · ')));
     if (e.place) c.append(pinLink(e.place));
     if (e.note) c.append(el('span','nt', e.note));
+    var prc=photoRow(e); if (prc) c.append(prc);
     var dp=(e.plan||[]).filter(function(p){ return e.repeat ? true : p.date===k; }).sort(function(x,y){ return (x.time||'').localeCompare(y.time||''); });
     if (dp.length){
       var pl=el('div','pl');
@@ -767,7 +839,7 @@ h1 .yr{color:var(--red)}
       var ed2 = edate.value && edate.value>date.value ? edate.value : '';
       var plan=plans.filter(function(p){ return (p.text||'').trim(); }).map(function(p){ return {id:p.id, date: ed2 ? (p.date>=date.value && p.date<=ed2 ? p.date : date.value) : date.value, time:p.time||'', text:p.text.trim(), place:(p.place||'').trim()}; })
         .sort(function(a,b){ return (a.date+a.time).localeCompare(b.date+b.time); });
-      var data={plan:plan,title:t,date:date.value,endDate:ed2,allDay:ad.checked,start:ad.checked?'':st.value,end:ad.checked?'':en.value,color:color,note:note.value.trim()};
+      var data={plan:plan,title:t,date:date.value,endDate:ed2,allDay:ad.checked,start:ad.checked?'':st.value,end:ad.checked?'':en.value,color:color,note:note.value.trim(),photos:pics.slice()};
       if (ST.repeat){ data.repeat=rep.value; data.repeatDays=rep.value==='weekly'?rdays.slice().sort():[]; data.repeatUntil=rep.value?runtil.value:''; if (data.repeat) data.endDate=''; }
       if (ST.alarm) data.alarm=alm.value;
       data.place=place.value.trim();
@@ -844,6 +916,24 @@ h1 .yr{color:var(--red)}
     var b3=el('div','fbox'); b3.append(row('색상',cw)); s.fields.append(b3);
     var note=el('textarea'); note.id='ev-note'; note.placeholder='메모'; note.value=e?e.note||'':'';
     var b4=el('div','fbox'); b4.append(note); s.fields.append(b4);
+    var pics=(e&&e.photos?e.photos.slice():[]).filter(function(id){ return PH[id]; });
+    var pe=el('div','phedit'), pf=el('input'); pf.type='file'; pf.accept='image/*'; pf.multiple=true; pf.hidden=true; pf.id='ev-photo';
+    function drawPics(){
+      pe.innerHTML='';
+      pics.forEach(function(id){
+        var bx=el('div','phbox'), im=el('img'); im.src=PH[id]; im.alt='메모 사진'; im.onclick=function(){ viewPhoto(id); };
+        var x=el('button',null,'×'); x.type='button'; x.setAttribute('aria-label','사진 빼기'); x.onclick=function(){ pics.splice(pics.indexOf(id),1); drawPics(); };
+        bx.append(im,x); pe.append(bx);
+      });
+      var ad=el('button','phadd'); ad.type='button'; ad.append(el('b',null,'+'), el('span',null,'사진')); ad.onclick=function(){ pf.click(); };
+      pe.append(ad, pf);
+    }
+    pf.onchange=function(){
+      var fs=[].slice.call(pf.files||[]); pf.value='';
+      fs.reduce(function(p, file){ return p.then(function(){ return shrinkPhoto(file).then(function(url){ var id=uid('ph'); return phPut(id,url).then(function(){ pics.push(id); drawPics(); }); }); }).catch(function(){}); }, Promise.resolve())
+        .then(function(){ if (!pics.length && fs.length) toast('사진을 불러오지 못했어요. 다른 사진으로 해 보세요'); });
+    };
+    drawPics(); b4.append(pe);
     if (e){
       var cd=inp('date','ev-copydate',''); var cb=el('button',null,'복사'); cb.type='button'; cb.style.cssText='color:var(--red);font-weight:600;flex:none';
       var crow=el('div','frow'); crow.append(el('span',null,'다른 날로 복사'), cd, cb);
@@ -971,7 +1061,10 @@ h1 .yr{color:var(--red)}
   }
   $('search').onclick=searchSheet;
   // 설정: 기능 켜고 끄기, 백업 저장·불러오기
-  function backupJson(){ return JSON.stringify({events:state.events, groups:state.groups, settings:state.settings}, null, 2); }
+  function backupJson(){
+    var u=phUsed(), photos={}; Object.keys(u).forEach(function(id){ if (PH[id]) photos[id]=PH[id]; });
+    return JSON.stringify({events:state.events, groups:state.groups, settings:state.settings, photos:photos});
+  }
   function saveBackup(btn){
     var name='내캘린더-백업-'+TODAY+'.json', blob=new Blob([backupJson()],{type:'application/json'});
     try {
@@ -985,6 +1078,7 @@ h1 .yr{color:var(--red)}
     setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1000); btn.textContent='백업 파일을 저장했어요';
   }
   function applyBackup(p){
+    if (p.photos) Object.keys(p.photos).forEach(function(id){ phPut(id, p.photos[id]); });
     state.events=p.events; state.groups=p.groups; if (p.settings) state.settings=p.settings;
     if (!state.settings) state.settings={repeat:false, week:false, place:false, alarm:false};
     delete state.fresh; refreshLove(); render(); saveNow();
@@ -1193,6 +1287,7 @@ h1 .yr{color:var(--red)}
     if (d && d.sy) setTimeout(function(){ window.scrollTo(0,d.sy); }, 0);
   }
   refreshLove(); start({});
+  phLoad().then(function(){ render(); phCleanup(); });
   // 처음 열었을 때: 백업 파일을 불러오면 지금까지의 일정이 들어온다
   if (state.fresh){
     var wc=$('welcome'); wc.hidden=false;
