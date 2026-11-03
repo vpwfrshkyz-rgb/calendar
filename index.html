@@ -874,7 +874,7 @@ h1 .yr{color:var(--red)}
     var alm=el('select'); alm.id='ev-alarm';
     ALARMS.forEach(function(a){ var o=el('option',null,a[1]); o.value=a[0]; alm.append(o); });
     alm.value=(e&&e.alarm)||'';
-    var place=inp('text','ev-place',e&&e.place,'예: 망원시장');
+    var place=inp('text','ev-place',e&&e.place,'예: 서울역');
     var bx=el('div','fbox');
     if (ST.repeat) bx.append(row('반복',rep), rowDays, rowUntil);
     if (ST.alarm) bx.append(row('알림',alm));
@@ -897,9 +897,9 @@ h1 .yr{color:var(--red)}
         var pd=inp('date','pl-d-'+p.id,p.date); pd.min=date.value; if (edate.value) pd.max=edate.value; pd.hidden=!multi; pd.onchange=function(){ p.date=pd.value; };
         var pt=inp('time','pl-t-'+p.id,p.time); pt.onchange=function(){ p.time=pt.value; };
         var del=el('button','pdel','×'); del.type='button'; del.setAttribute('aria-label','계획 삭제'); del.onclick=function(){ plans.splice(plans.indexOf(p),1); drawPlans(); };
-        var px=inp('text','pl-x-'+p.id,p.text,'계획 (예: 후쿠오카 공항 도착)'); px.oninput=function(){ p.text=px.value; };
+        var px=inp('text','pl-x-'+p.id,p.text,'계획 (예: 공항 도착)'); px.oninput=function(){ p.text=px.value; };
         r.append(pd,pt,del,px);
-        var pp=inp('text','pl-p-'+p.id,p.place,'장소 (선택, 예: 더현대 서울)'); pp.classList.add('pplace'); pp.oninput=function(){ p.place=pp.value; }; r.append(pp);
+        var pp=inp('text','pl-p-'+p.id,p.place,'장소 (선택)'); pp.classList.add('pplace'); pp.oninput=function(){ p.place=pp.value; }; r.append(pp);
         plist.append(r);
       });
     }
@@ -1093,7 +1093,7 @@ h1 .yr{color:var(--red)}
     var s=sheet('설정','완료',function(){ Object.keys(nx).forEach(function(k){ ST[k]=nx[k].checked; }); if (!ST.week) weekPref=false;
       ST.love={start:lvS.value, gf:lvG.value, me:lvM.value}; refreshLove(); });
     var box=el('div','fbox');
-    [['repeat','반복 일정','매주 헬스처럼 반복되는 일정을 한 번에 등록해요.'],
+    [['repeat','반복 일정','매주 운동처럼 반복되는 일정을 한 번에 등록해요.'],
      ['week','주간 보기','달력 아래에 월/주 버튼이 생겨서 한 주 일정을 목록으로 볼 수 있어요.']
     ].forEach(function(f){
       var tg=el('label','toggle'); var c=el('input'); c.type='checkbox'; c.id='set-'+f[0]; c.checked=!!ST[f[0]]; tg.append(c, el('span')); nx[f[0]]=c;
