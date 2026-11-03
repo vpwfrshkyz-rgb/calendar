@@ -141,6 +141,16 @@ h1 .yr{color:var(--red)}
 .ev .n{font-size:.85rem;color:var(--muted);overflow-wrap:anywhere}
 .ev .time{font-size:.85rem;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums;flex:none;display:flex;flex-direction:column}
 .empty{color:var(--muted);font-size:.9rem;padding:14px 4px}
+/* Face ID 잠금 화면 */
+.lock{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;align-items:center;justify-content:center;
+  padding:env(safe-area-inset-top,0px) max(16px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0px) max(16px,env(safe-area-inset-left,0px))}
+.lock-in{display:flex;flex-direction:column;align-items:center;gap:10px;color:var(--ink);text-align:center}
+.lock-in svg{color:var(--red);margin-bottom:6px}
+.lock-in strong{font-size:1.25rem}
+.lock-in p{margin:0;color:var(--muted);font-size:.9rem;min-height:1.3em}
+.lock-in button{margin-top:14px;background:var(--red);color:#fff;font-weight:600;font-size:1rem;padding:12px 26px;border-radius:14px}
+.lock-in button:active{opacity:.6}
+.lockbtn{color:var(--red);font-weight:500;padding:12px 14px;width:100%;text-align:left}
 /* 메모 사진 */
 .phs{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
 .phs img{width:64px;height:64px;object-fit:cover;border-radius:8px;display:block;cursor:zoom-in;background:var(--surface)}
@@ -370,6 +380,14 @@ h1 .yr{color:var(--red)}
   <div class="vseg" id="vseg" hidden><button type="button" id="vm-m" aria-pressed="true">월</button><button type="button" id="vm-w" aria-pressed="false">주</button></div>
 </div>
 <div class="trash" id="trash" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg><span>놓으면 삭제</span></div>
+<div class="lock" id="lock" hidden>
+  <div class="lock-in">
+    <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+    <strong>내 캘린더</strong>
+    <p id="lock-msg">잠겨 있어요</p>
+    <button type="button" id="lock-go">Face ID로 열기</button>
+  </div>
+</div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div id="sheet-slot"></div>
 
@@ -449,6 +467,45 @@ h1 .yr{color:var(--red)}
   var CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>';
 
   function setStatus(m,err){ var s=$('status'); s.textContent=m; s.classList.toggle('err',!!err); }
+  // ---------- Face ID 잠금 ----------
+  // 아이폰의 패스키를 이용해 Face ID(안 되면 휴대폰 암호)로 본인 확인을 한 뒤에만 화면을 보여 준다.
+  // 일정 내용은 그대로 휴대폰 안에만 있고, 이 확인 과정에서도 밖으로 나가는 정보는 없다.
+  function rnd(n){ var a=new Uint8Array(n); crypto.getRandomValues(a); return a; }
+  function b64(buf){ var b=new Uint8Array(buf), t=''; for (var i=0;i<b.length;i++) t+=String.fromCharCode(b[i]); return btoa(t); }
+  function unb64(t){ var r=atob(t), a=new Uint8Array(r.length); for (var i=0;i<r.length;i++) a[i]=r.charCodeAt(i); return a; }
+  function lockOn(){ return !!(state.settings.lock && state.settings.lock.id); }
+  function lockSupported(){
+    try { if (!window.PublicKeyCredential || !PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) return Promise.resolve(false);
+      return PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(function(){ return false; }); } catch(e){ return Promise.resolve(false); }
+  }
+  function verifyFace(){
+    return navigator.credentials.get({publicKey:{challenge:rnd(32), timeout:60000, userVerification:'required',
+      allowCredentials:[{type:'public-key', id:unb64(state.settings.lock.id), transports:['internal','hybrid']}]}})
+      .then(function(c){ var ad=new Uint8Array(c.response.authenticatorData); if (!(ad[32] & 4)) throw new Error('not verified'); return true; });
+  }
+  function setupFace(){
+    return navigator.credentials.create({publicKey:{challenge:rnd(32), timeout:60000, rp:{name:'내 캘린더'},
+      user:{id:rnd(16), name:'내 캘린더 잠금', displayName:'내 캘린더 잠금'},
+      pubKeyCredParams:[{type:'public-key', alg:-7},{type:'public-key', alg:-257}],
+      authenticatorSelection:{authenticatorAttachment:'platform', userVerification:'required', residentKey:'preferred'}}})
+      .then(function(c){ return b64(c.rawId); });
+  }
+  var appLocked=false, hiddenAt=0, unlocking=false;
+  function showLock(msg){ appLocked=true; $('lock').hidden=false; $('lock-msg').textContent=msg||'잠겨 있어요'; }
+  function hideLock(){ appLocked=false; $('lock').hidden=true; }
+  function tryUnlock(){
+    if (unlocking) return; unlocking=true; $('lock-msg').textContent='확인하는 중…';
+    verifyFace().then(function(){ hideLock(); })
+      .catch(function(){ $('lock-msg').textContent='아래 버튼을 눌러 Face ID로 열어 주세요'; })
+      .then(function(){ unlocking=false; });
+  }
+  $('lock-go').onclick=tryUnlock;
+  document.addEventListener('visibilitychange', function(){
+    if (!lockOn()) return;
+    if (document.visibilityState==='hidden'){ hiddenAt=Date.now(); if (!appLocked){ $('lock').hidden=false; } }   // 앱 전환 화면에도 내용이 안 보이게
+    else if (!appLocked){ if (Date.now()-hiddenAt>60000){ showLock(); tryUnlock(); } else $('lock').hidden=true; }
+  });
+
   // 사진: 휴대폰 안 저장소(IndexedDB)에 줄여서 보관한다. 일정에는 사진 번호만 적어 둔다.
   var PH={}, phDb=null;
   function phOpen(){
@@ -1063,7 +1120,8 @@ h1 .yr{color:var(--red)}
   // 설정: 기능 켜고 끄기, 백업 저장·불러오기
   function backupJson(){
     var u=phUsed(), photos={}; Object.keys(u).forEach(function(id){ if (PH[id]) photos[id]=PH[id]; });
-    return JSON.stringify({events:state.events, groups:state.groups, settings:state.settings, photos:photos});
+    var st=Object.assign({}, state.settings); delete st.lock;
+    return JSON.stringify({events:state.events, groups:state.groups, settings:st, photos:photos});
   }
   function saveBackup(btn){
     var name='내캘린더-백업-'+TODAY+'.json', blob=new Blob([backupJson()],{type:'application/json'});
@@ -1079,7 +1137,9 @@ h1 .yr{color:var(--red)}
   }
   function applyBackup(p){
     if (p.photos) Object.keys(p.photos).forEach(function(id){ phPut(id, p.photos[id]); });
+    var keepLock=state.settings && state.settings.lock;
     state.events=p.events; state.groups=p.groups; if (p.settings) state.settings=p.settings;
+    if (state.settings){ delete state.settings.lock; if (keepLock) state.settings.lock=keepLock; }
     if (!state.settings) state.settings={repeat:false, week:false, place:false, alarm:false};
     delete state.fresh; refreshLove(); render(); saveNow();
   }
@@ -1105,6 +1165,23 @@ h1 .yr{color:var(--red)}
     lb.append(row('사귄 날',lvS), row('여자친구 생일',lvG), row('내 생일',lvM));
     lb.append(el('div','shelp','100일·200일·주년과 생일을 달력에 분홍색으로 표시해요. 생일은 연도와 상관없이 매년 표시돼요.'));
     s.fields.append(el('div','shint','우리 기념일'), lb);
+    var lkb=el('div','fbox'), lk=el('button','lockbtn'); lk.type='button';
+    function drawLk(){ lk.textContent = lockOn() ? 'Face ID 잠금 끄기' : 'Face ID 잠금 켜기'; }
+    drawLk();
+    var lkh=el('div','shelp', '켜 두면 앱을 열 때, 그리고 1분 넘게 다른 앱을 쓰다 돌아올 때 Face ID(안 되면 휴대폰 암호)로 확인해요.');
+    lk.onclick=function(){
+      if (lockOn()){
+        verifyFace().then(function(){ delete state.settings.lock; saveNow(); drawLk(); toast('Face ID 잠금을 껐어요'); })
+          .catch(function(){ toast('본인 확인이 안 돼서 잠금을 그대로 뒀어요'); });
+        return;
+      }
+      lockSupported().then(function(ok){
+        if (!ok){ toast('이 휴대폰에서는 Face ID 잠금을 쓸 수 없어요'); return; }
+        setupFace().then(function(id){ state.settings.lock={id:id}; saveNow(); drawLk(); toast('Face ID 잠금을 켰어요'); })
+          .catch(function(){ toast('잠금을 켜지 못했어요. 다시 눌러 보세요'); });
+      });
+    };
+    lkb.append(lk, lkh); s.fields.append(el('div','shint','잠금'), lkb);
     var bk=el('div','fbox');
     var sv=el('button','sbtn','백업 파일로 저장'); sv.type='button';
     sv.onclick=function(){ saveBackup(sv); };
@@ -1288,6 +1365,7 @@ h1 .yr{color:var(--red)}
   }
   refreshLove(); start({});
   phLoad().then(function(){ render(); phCleanup(); });
+  if (lockOn()){ showLock(); tryUnlock(); }
   // 처음 열었을 때: 백업 파일을 불러오면 지금까지의 일정이 들어온다
   if (state.fresh){
     var wc=$('welcome'); wc.hidden=false;
